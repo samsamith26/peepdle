@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Actor {
+  id                  Int      @id @default(autoincrement())
+  name                String   @unique
+  birthYear           Int
+  totalCareerGross    BigInt
+  majorAwards         Int
+  nationality         String
+  yearsActive         Int
+  genres              String[]
+  numberOfFilms       Int
+  avgCriticScore      Float
+  collaborators       Json     @default("[]")
+  director            Json     @default("{}")
+  imageUrl            String?
+}
+
+model Athlete {
+  id               Int     @id @default(autoincrement())
+  name             String  @unique
+  birthYear        Int
+  sport            String
+  team             String
+  position         String
+  heightCm         Int
+  allStarSelections Int @default(0)
+  yearsActive       Int
+  imageUrl         String?
+}

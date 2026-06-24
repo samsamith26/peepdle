@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(chromium-cli --session celebridle)"
+    ]
+  }
+}
