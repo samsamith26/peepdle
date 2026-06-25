@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useTransition } from "react";
-import { submitAthleteGuess } from "./actions";
-import type { AthleteComparison } from "@/lib/athleteGame";
+import { useState, useRef, useTransition, useEffect } from "react";
+import { submitAthleteGuess, getAthletedleAnswer } from "./actions";
+import type { AthleteComparison, TeamEntry } from "@/lib/athleteGame";
 import type { Closeness, Direction } from "@/lib/compare";
 
 const MAX_GUESSES = 10;
@@ -25,11 +25,12 @@ function boolEmoji(match: boolean): string {
 }
 
 function guessRow(g: AthleteComparison): string {
+  const teamMatch = g.teams.some((t) => t.highlighted);
   return [
     closenessEmoji(g.age.closeness),
     closenessEmoji(g.heightCm.closeness),
     boolEmoji(g.sport.match),
-    boolEmoji(g.team.match),
+    boolEmoji(teamMatch),
     closenessEmoji(g.yearsActive.closeness),
     boolEmoji(g.position.match),
     closenessEmoji(g.allStarSelections.closeness),
@@ -37,14 +38,11 @@ function guessRow(g: AthleteComparison): string {
 }
 
 // ── Tile component ─────────────────────────────────────────────────────────────
-// wrap=true: value text wraps to a second line (used for Team only).
-// Default: value is single-line with truncation.
 
 type TileProps = {
   label: string;
   value: string;
   className?: string;
-  wrap?: boolean;
 } & (
   | { kind: "num"; direction: Direction; closeness: Closeness }
   | { kind: "bool"; match: boolean }
@@ -83,11 +81,7 @@ function Tile(props: TileProps) {
       <span className={`text-[8px] font-semibold uppercase tracking-widest leading-none mb-1 truncate w-full text-center ${labelColor}`}>
         {props.label}
       </span>
-      <span
-        className={`text-sm font-black leading-tight text-center text-white ${
-          props.wrap ? "whitespace-normal break-words w-full" : "truncate w-full"
-        }`}
-      >
+      <span className="text-sm font-black leading-tight text-center text-white truncate w-full">
         {props.value}{arrow}
       </span>
     </div>
@@ -121,59 +115,126 @@ function Avatar({ src, name, isCorrect }: { src: string | null; name: string; is
   );
 }
 
+// ── Team logo badge ────────────────────────────────────────────────────────────
+
+function TeamBadge({ entry }: { entry: TeamEntry }) {
+  const [err, setErr] = useState(false);
+  const ring = entry.highlighted ? "ring-2 ring-green-500" : "ring-1 ring-zinc-600";
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div className={`w-12 h-12 rounded-lg overflow-hidden bg-zinc-700 flex-shrink-0 ${ring} flex items-center justify-center`}>
+        {entry.logoUrl && !err ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={entry.logoUrl}
+            alt={entry.name}
+            className="w-full h-full object-contain p-0.5"
+            onError={() => setErr(true)}
+          />
+        ) : (
+          <span className="text-base font-black text-zinc-400 select-none">
+            {entry.name.split(" ").map((w) => w[0]).slice(0, 3).join("")}
+          </span>
+        )}
+      </div>
+      <span
+        className={`text-[9px] font-semibold text-center leading-tight max-w-[4rem] ${
+          entry.highlighted ? "text-green-400" : "text-zinc-300"
+        }`}
+      >
+        {entry.name}
+      </span>
+    </div>
+  );
+}
+
+function EmptyTeamSlot() {
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="w-12 h-12 rounded-lg bg-zinc-800 ring-1 ring-zinc-700 flex-shrink-0 flex items-center justify-center">
+        <span className="text-zinc-700 text-xl font-black select-none">?</span>
+      </div>
+      <span className="text-[9px] font-semibold text-zinc-700 text-center leading-tight max-w-[4rem]">—</span>
+    </div>
+  );
+}
+
+// ── Answer reveal ─────────────────────────────────────────────────────────────
+
+function AnswerReveal({ name, imageUrl }: { name: string; imageUrl: string | null }) {
+  const [imgErr, setImgErr] = useState(false);
+  return (
+    <div className="flex flex-col items-center gap-3 mt-4 mb-1">
+      <p className="text-zinc-400 text-xs uppercase tracking-widest font-semibold">The answer was</p>
+      <div className="w-20 h-20 rounded-xl overflow-hidden bg-zinc-700 ring-1 ring-zinc-600">
+        {imageUrl && !imgErr ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt={name} className="w-full h-full object-cover object-top" onError={() => setImgErr(true)} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-2xl font-black text-zinc-400 select-none">{name[0]}</div>
+        )}
+      </div>
+      <p className="text-xl font-black text-white">{name}</p>
+    </div>
+  );
+}
+
 // ── Guess card ─────────────────────────────────────────────────────────────────
 //
-// Grid visual:
-//   ┌──────────┬──────────────────────────────┬──────────┐
-//   │  Age     │  Sport       │  Yrs Active   │          │
-//   │          ├────────────────────────────── │  Team   │
-//   │  Height  │  Position (wide) │ All-Stars  │ (wrap)  │
-//   └──────────┴──────────────────────────────┴──────────┘
-//
-// Implemented with nested flex, not CSS grid, so that the middle section's
-// top and bottom rows can have independent (non-aligned) column boundaries.
+// Layout:
+//   ┌──────────────────────────────────────────────────────────┐
+//   │ [Photo]  Name                                            │
+//   │          Age | Sport | Yrs Active                        │
+//   │          Height | Position | All-Stars                   │
+//   ├──────────────────────────────────────────────────────────┤
+//   │   Teams                                                  │
+//   │   [Logo] [Logo] [Logo]                                   │
+//   └──────────────────────────────────────────────────────────┘
 
 function AthleteCard({ row }: { row: AthleteComparison }) {
   return (
     <div
-      className={`flex gap-4 items-start rounded-xl border ${
+      className={`flex flex-col rounded-xl border overflow-hidden ${
         row.isCorrect ? "border-green-500" : "border-zinc-700"
-      } bg-zinc-800/80 p-4`}
+      } bg-zinc-800/80`}
     >
-      <Avatar src={row.imageUrl} name={row.name} isCorrect={row.isCorrect} />
+      {/* Top: photo + attribute tiles */}
+      <div className="flex gap-4 items-start p-4">
+        <Avatar src={row.imageUrl} name={row.name} isCorrect={row.isCorrect} />
 
-      <div className="flex-1 min-w-0 flex flex-col gap-2">
-        <p className="font-bold text-white text-base leading-tight">{row.name}</p>
+        <div className="flex-1 min-w-0 flex flex-col gap-2">
+          <p className="font-bold text-white text-base leading-tight">{row.name}</p>
 
-        <div className="flex gap-1.5 items-stretch">
-
-          {/* Col 1: Age (top) + Height (bottom) — equal height stacked pair */}
-          <div className="flex-1 flex flex-col gap-1.5">
-            <Tile kind="num" label="Age"    value={String(row.age.value)}      direction={row.age.direction}    closeness={row.age.closeness}    className="flex-1" />
-            <Tile kind="num" label="Height" value={cmToFtIn(row.heightCm.value)} direction={row.heightCm.direction} closeness={row.heightCm.closeness} className="flex-1" />
+          {/* Top row: Age / Sport / Yrs Active */}
+          <div className="flex gap-1.5">
+            <Tile kind="num"  label="Age"        value={String(row.age.value)}             direction={row.age.direction}             closeness={row.age.closeness}             className="flex-1" />
+            <Tile kind="bool" label="Sport"       value={row.sport.value}                   match={row.sport.match}                                                              className="flex-1" />
+            <Tile kind="num"  label="Yrs Active"  value={String(row.yearsActive.value)}     direction={row.yearsActive.direction}     closeness={row.yearsActive.closeness}     className="flex-1" />
           </div>
 
-          {/* Middle: two independent rows — top even, bottom uneven */}
-          <div className="flex-[2] flex flex-col gap-1.5">
-            {/* Top row: Sport + Yrs Active, equal widths */}
-            <div className="flex gap-1.5 flex-1">
-              <Tile kind="bool" label="Sport"      value={row.sport.value}                    match={row.sport.match}                                                                  className="flex-1" />
-              <Tile kind="num"  label="Yrs Active" value={String(row.yearsActive.value)}      direction={row.yearsActive.direction}       closeness={row.yearsActive.closeness}       className="flex-1" />
-            </div>
-            {/* Bottom row: Position (wider) + All-Stars (narrower) */}
-            <div className="flex gap-1.5 flex-1">
-              <Tile kind="bool" label="Position"   value={row.position.value}                 match={row.position.match}                                                               className="flex-[3]" />
-              <Tile kind="num"  label="All-Stars"  value={String(row.allStarSelections.value)} direction={row.allStarSelections.direction} closeness={row.allStarSelections.closeness} className="flex-[2]" />
-            </div>
+          {/* Bottom row: Height / Position / All-Stars */}
+          <div className="flex gap-1.5">
+            <Tile kind="num"  label="Height"      value={cmToFtIn(row.heightCm.value)}      direction={row.heightCm.direction}        closeness={row.heightCm.closeness}        className="flex-1" />
+            <Tile kind="bool" label="Position"    value={row.position.value}                match={row.position.match}                                                           className="flex-[2]" />
+            <Tile kind="num"  label="All-Stars"   value={String(row.allStarSelections.value)} direction={row.allStarSelections.direction} closeness={row.allStarSelections.closeness} className="flex-1" />
           </div>
-
-          {/* Col 4: Team — spans full row height, value may wrap */}
-          <div className="flex-1 flex flex-col">
-            <Tile kind="bool" label="Team" value={row.team.value} match={row.team.match} className="flex-1" wrap />
-          </div>
-
         </div>
       </div>
+
+      {/* Teams bar — always 3 slots (real teams + ghost padding) */}
+      {(() => {
+        const display = row.teams.slice(0, 3);
+        const ghosts = Math.max(0, 3 - display.length);
+        return (
+          <div className="border-t border-zinc-700/60 px-4 py-3">
+            <p className="text-[8px] font-semibold uppercase tracking-widest text-zinc-500 mb-2 text-center">Teams</p>
+            <div className="flex justify-around">
+              {display.map((t) => <TeamBadge key={t.name} entry={t} />)}
+              {Array.from({ length: ghosts }).map((_, i) => <EmptyTeamSlot key={`ghost-${i}`} />)}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -212,12 +273,24 @@ export default function AthletedleGame({ names }: { names: string[] }) {
   const [guesses, setGuesses] = useState<AthleteComparison[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [won, setWon] = useState(false);
+  const [givenUp, setGivenUp] = useState(false);
+  const [answer, setAnswer] = useState<{ name: string; imageUrl: string | null } | null>(null);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const guessedNames = new Set(guesses.map((g) => g.name));
   const remaining = MAX_GUESSES - guesses.length;
   const lost = !won && remaining === 0;
+  const gameOver = lost || givenUp;
+
+  useEffect(() => {
+    if (gameOver && !won && !answer) {
+      startTransition(async () => {
+        const ans = await getAthletedleAnswer();
+        setAnswer(ans);
+      });
+    }
+  }, [gameOver, won, answer]);
 
   function handleInput(val: string) {
     setInput(val);
@@ -238,7 +311,7 @@ export default function AthletedleGame({ names }: { names: string[] }) {
 
   function handleSubmit() {
     const name = input.trim();
-    if (!name || won || lost) return;
+    if (!name || won || gameOver) return;
     if (guessedNames.has(name)) { setError("Already guessed."); return; }
 
     startTransition(async () => {
@@ -249,6 +322,11 @@ export default function AthletedleGame({ names }: { names: string[] }) {
       setFiltered([]);
       if (result.isCorrect) setWon(true);
     });
+  }
+
+  function handleGiveUp() {
+    if (won || gameOver) return;
+    setGivenUp(true);
   }
 
   return (
@@ -268,46 +346,57 @@ export default function AthletedleGame({ names }: { names: string[] }) {
           </a>
         </div>
 
-        {!won && !lost && (
-          <div className="relative flex flex-col gap-2">
-            <div className="flex gap-2">
-              <input
-                ref={inputRef}
-                className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white placeholder:text-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="Type an athlete name…"
-                value={input}
-                onChange={(e) => handleInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSubmit();
-                  if (e.key === "Escape") setFiltered([]);
-                }}
-                disabled={isPending}
-                autoComplete="off"
-              />
+        {!won && !gameOver && (
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-center">
               <button
-                onClick={handleSubmit}
-                disabled={isPending || !input.trim()}
-                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
+                onClick={handleGiveUp}
+                className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-zinc-400 hover:text-zinc-200 text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
               >
-                {isPending ? "…" : "Guess"}
+                Give Up
               </button>
             </div>
 
-            {filtered.length > 0 && (
-              <ul className="absolute top-full mt-1 left-0 right-[5.5rem] z-10 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
-                {filtered.map((n) => (
-                  <li
-                    key={n}
-                    className="px-4 py-2.5 cursor-pointer hover:bg-zinc-700 text-sm text-zinc-100 transition-colors"
-                    onMouseDown={() => selectSuggestion(n)}
-                  >
-                    {n}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className="relative flex flex-col gap-2">
+              <div className="flex gap-2">
+                <input
+                  ref={inputRef}
+                  className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white placeholder:text-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="Type an athlete name…"
+                  value={input}
+                  onChange={(e) => handleInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSubmit();
+                    if (e.key === "Escape") setFiltered([]);
+                  }}
+                  disabled={isPending}
+                  autoComplete="off"
+                />
+                <button
+                  onClick={handleSubmit}
+                  disabled={isPending || !input.trim()}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
+                >
+                  {isPending ? "…" : "Guess"}
+                </button>
+              </div>
 
-            {error && <p className="text-red-400 text-sm pl-1">{error}</p>}
+              {filtered.length > 0 && (
+                <ul className="absolute top-full mt-1 left-0 right-[5.5rem] z-10 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+                  {filtered.map((n) => (
+                    <li
+                      key={n}
+                      className="px-4 py-2.5 cursor-pointer hover:bg-zinc-700 text-sm text-zinc-100 transition-colors"
+                      onMouseDown={() => selectSuggestion(n)}
+                    >
+                      {n}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {error && <p className="text-red-400 text-sm pl-1">{error}</p>}
+            </div>
           </div>
         )}
 
@@ -321,10 +410,21 @@ export default function AthletedleGame({ names }: { names: string[] }) {
           </div>
         )}
 
-        {lost && (
+        {!won && gameOver && (
           <div className="text-center bg-red-950 border border-red-800 rounded-xl p-6">
-            <p className="text-2xl font-black text-red-400">Better luck tomorrow!</p>
-            <p className="text-red-500 mt-1 text-sm">You used all {MAX_GUESSES} guesses.</p>
+            <p className="text-2xl font-black text-red-400">
+              {givenUp ? "You gave up!" : "Better luck tomorrow!"}
+            </p>
+            <p className="text-red-500 mt-1 text-sm">
+              {givenUp
+                ? `You gave up after ${guesses.length} guess${guesses.length !== 1 ? "es" : ""}.`
+                : `You used all ${MAX_GUESSES} guesses.`}
+            </p>
+            {answer ? (
+              <AnswerReveal name={answer.name} imageUrl={answer.imageUrl} />
+            ) : (
+              <p className="text-zinc-500 text-sm mt-4 animate-pulse">Revealing answer…</p>
+            )}
             <ShareButton guesses={guesses} won={false} />
           </div>
         )}

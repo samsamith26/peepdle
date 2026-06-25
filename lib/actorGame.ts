@@ -19,6 +19,7 @@ export type CollabEntry = {
   isDirector: boolean;
   highlighted: boolean;
   imageUrl: string;
+  isEmpty?: boolean;
 };
 
 export type GenreTag = {
@@ -55,29 +56,60 @@ export async function getAllActorNames(): Promise<string[]> {
   return all.map((a) => a.name);
 }
 
+const EMPTY_COLLAB: CollabEntry = {
+  name: "",
+  imageUrl: "",
+  isDirector: false,
+  highlighted: false,
+  isEmpty: true,
+};
+
 export async function compareActor(
   guessName: string,
   currentYear: number
 ): Promise<ActorComparison | null> {
-  const [answer, guess] = await Promise.all([
+  const [answer, guess, poolNames] = await Promise.all([
     getDailyActor(),
     prisma.actor.findUnique({ where: { name: guessName } }),
+    prisma.actor.findMany({ select: { name: true } }),
   ]);
 
   if (!guess) return null;
 
-  const guessCollabs = guess.collaborators as CollabPerson[];
+  const poolNameSet = new Set(poolNames.map((a) => a.name));
+
+  // Only show collaborators who are themselves in our actor pool
+  const guessCollabs = (guess.collaborators as CollabPerson[])
+    .filter((c) => c.name !== guess.name && poolNameSet.has(c.name))
+    .slice(0, 3);
   const guessDirector = guess.director as CollabPerson;
-  const answerCollabs = answer.collaborators as CollabPerson[];
+  const answerCollabs = (answer.collaborators as CollabPerson[])
+    .filter((c) => c.name !== answer.name && poolNameSet.has(c.name));
   const answerDirector = answer.director as CollabPerson;
 
   const answerCollabNames = new Set(answerCollabs.map((c) => c.name));
   const answerGenreSet = new Set(answer.genres);
 
+  // Use age at death for deceased actors instead of counting against today
+  const guessAge  = (guess.deathYear  ?? currentYear) - guess.birthYear;
+  const answerAge = (answer.deathYear ?? currentYear) - answer.birthYear;
+
+  const actorCollabEntries: CollabEntry[] = guessCollabs.map((c) => ({
+    name: c.name,
+    imageUrl: c.imageUrl,
+    isDirector: false,
+    highlighted: answerCollabNames.has(c.name),
+  }));
+
+  // Pad to exactly 3 actor collab slots
+  while (actorCollabEntries.length < 3) {
+    actorCollabEntries.push({ ...EMPTY_COLLAB });
+  }
+
   return {
     name: guess.name,
     imageUrl: guess.imageUrl ?? null,
-    age: numericCompare(currentYear - guess.birthYear, currentYear - answer.birthYear, absDiff(5)),
+    age: numericCompare(guessAge, answerAge, absDiff(5)),
     totalCareerGross: numericCompare(
       Number(guess.totalCareerGross),
       Number(answer.totalCareerGross),
@@ -93,12 +125,7 @@ export async function compareActor(
     numberOfFilms: numericCompare(guess.numberOfFilms, answer.numberOfFilms, absDiff(10)),
     avgCriticScore: numericCompare(guess.avgCriticScore, answer.avgCriticScore, pctDiff(0.10)),
     collabs: [
-      ...guessCollabs.map((c) => ({
-        name: c.name,
-        imageUrl: c.imageUrl,
-        isDirector: false,
-        highlighted: answerCollabNames.has(c.name),
-      })),
+      ...actorCollabEntries,
       {
         name: guessDirector.name,
         imageUrl: guessDirector.imageUrl,

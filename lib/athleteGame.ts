@@ -12,18 +12,26 @@ const EPOCH = new Date("2025-01-01").getTime();
 // 2 inches in cm
 const heightClose = (g: number, a: number) => Math.abs(g - a) <= 2 * 2.54;
 
+export type TeamEntry = {
+  name: string;
+  logoUrl: string | null;
+  highlighted: boolean;
+};
+
 export type AthleteComparison = {
   name: string;
   imageUrl: string | null;
   age: NumericResult;
   sport: BoolResult;
-  team: BoolResult;
   position: BoolResult;
   heightCm: NumericResult;
   allStarSelections: NumericResult;
   yearsActive: NumericResult;
+  teams: TeamEntry[];
   isCorrect: boolean;
 };
+
+type StoredTeam = { name: string; logoUrl: string | null };
 
 export async function getDailyAthlete() {
   const dayIndex = Math.floor((Date.now() - EPOCH) / 86_400_000);
@@ -50,16 +58,24 @@ export async function compareAthlete(
 
   if (!guess) return null;
 
+  const guessTeams  = (guess.teams  as StoredTeam[]) ?? [];
+  const answerTeams = (answer.teams as StoredTeam[]) ?? [];
+  const answerTeamNames = new Set(answerTeams.map((t) => t.name));
+
   return {
     name: guess.name,
     imageUrl: guess.imageUrl ?? null,
     age: numericCompare(currentYear - guess.birthYear, currentYear - answer.birthYear, absDiff(5)),
     sport: boolCompare(guess.sport, answer.sport),
-    team: boolCompare(guess.team, answer.team),
     position: boolCompare(guess.position, answer.position),
     heightCm: numericCompare(guess.heightCm, answer.heightCm, heightClose),
     allStarSelections: numericCompare(guess.allStarSelections, answer.allStarSelections, absDiff(2)),
     yearsActive: numericCompare(guess.yearsActive, answer.yearsActive, absDiff(5)),
+    teams: guessTeams.map((t) => ({
+      name: t.name,
+      logoUrl: t.logoUrl,
+      highlighted: answerTeamNames.has(t.name),
+    })),
     isCorrect: guess.id === answer.id,
   };
 }

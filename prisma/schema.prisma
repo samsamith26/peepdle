@@ -10,6 +10,7 @@ model Actor {
   id                  Int      @id @default(autoincrement())
   name                String   @unique
   birthYear           Int
+  deathYear           Int?
   totalCareerGross    BigInt
   majorAwards         Int
   nationality         String
@@ -23,14 +24,15 @@ model Actor {
 }
 
 model Athlete {
-  id               Int     @id @default(autoincrement())
-  name             String  @unique
-  birthYear        Int
-  sport            String
-  team             String
-  position         String
-  heightCm         Int
-  allStarSelections Int @default(0)
+  id                Int     @id @default(autoincrement())
+  name              String  @unique
+  birthYear         Int
+  sport             String
+  team              String
+  teams             Json    @default("[]")
+  position          String
+  heightCm          Int
+  allStarSelections Int     @default(0)
   yearsActive       Int
-  imageUrl         String?
+  imageUrl          String?
 }

@@ -3,7 +3,10 @@
     "allow": [
       "Skill(run)",
       "Skill(run:*)",
-      "Bash(chromium-cli --session celebridle)"
+      "Bash(chromium-cli --session celebridle)",
+      "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_I0gjycFTvsM8@ep-odd-breeze-atj3byj1.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" npx prisma db push)",
+      "Bash(npx tsc *)",
+      "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_I0gjycFTvsM8@ep-odd-breeze-atj3byj1.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" npx tsx scripts/wikiUpdate.ts --actors-only)"
     ]
   }
 }

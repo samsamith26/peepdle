@@ -1,6 +1,6 @@
 "use server";
 
-import { compareActor } from "@/lib/actorGame";
+import { compareActor, getDailyActor } from "@/lib/actorGame";
 import type { ActorComparison } from "@/lib/actorGame";
 
 export async function submitActorGuess(
@@ -10,4 +10,9 @@ export async function submitActorGuess(
   const result = await compareActor(name, new Date().getFullYear());
   if (!result) return { error: `"${name}" not found in our actor database.` };
   return result;
+}
+
+export async function getActordleAnswer(): Promise<{ name: string; imageUrl: string | null }> {
+  const actor = await getDailyActor();
+  return { name: actor.name, imageUrl: actor.imageUrl ?? null };
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useTransition } from "react";
-import { submitActorGuess } from "./actions";
+import { useState, useRef, useTransition, useEffect } from "react";
+import { submitActorGuess, getActordleAnswer } from "./actions";
 import type { ActorComparison, CollabEntry } from "@/lib/actorGame";
 import type { Closeness, Direction } from "@/lib/compare";
 
@@ -33,14 +33,13 @@ function guessRow(g: ActorComparison): string {
     boolEmoji(g.nationality.match),
     closenessEmoji(g.yearsActive.closeness),
     closenessEmoji(g.numberOfFilms.closeness),
-    closenessEmoji(g.avgCriticScore.closeness),
     boolEmoji(g.genres.some((t) => t.highlighted)),
   ].join("");
 }
 
 // ── Tile component ─────────────────────────────────────────────────────────────
 
-type TileProps = { label: string; value: string; className?: string } & (
+type TileProps = { label: string; value: string; className?: string; wrap?: boolean } & (
   | { kind: "num"; direction: Direction; closeness: Closeness }
   | { kind: "bool"; match: boolean }
 );
@@ -78,7 +77,11 @@ function Tile(props: TileProps) {
       <span className={`text-[8px] font-semibold uppercase tracking-widest leading-none mb-1 truncate w-full text-center ${labelColor}`}>
         {props.label}
       </span>
-      <span className="text-sm font-black leading-tight text-center truncate w-full text-white">
+      <span
+        className={`text-sm font-black leading-tight text-center text-white ${
+          props.wrap ? "whitespace-normal break-words w-full" : "truncate w-full"
+        }`}
+      >
         {props.value}{arrow}
       </span>
     </div>
@@ -111,6 +114,13 @@ function Avatar({ src, name, isCorrect }: { src: string | null; name: string; is
 
 function CollabPhoto({ entry }: { entry: CollabEntry }) {
   const [err, setErr] = useState(false);
+  if (entry.isEmpty) {
+    return (
+      <div className="w-11 h-11 rounded-full bg-zinc-800 ring-1 ring-zinc-700 flex-shrink-0 flex items-center justify-center">
+        <span className="text-zinc-700 text-lg font-black select-none">?</span>
+      </div>
+    );
+  }
   const ring = entry.highlighted ? "ring-2 ring-green-500" : "ring-1 ring-zinc-600";
   return (
     <div className={`w-11 h-11 rounded-full overflow-hidden bg-zinc-700 flex-shrink-0 ${ring}`}>
@@ -127,6 +137,26 @@ function CollabPhoto({ entry }: { entry: CollabEntry }) {
           {entry.name[0]}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Answer reveal ─────────────────────────────────────────────────────────────
+
+function AnswerReveal({ name, imageUrl }: { name: string; imageUrl: string | null }) {
+  const [imgErr, setImgErr] = useState(false);
+  return (
+    <div className="flex flex-col items-center gap-3 mt-4 mb-1">
+      <p className="text-zinc-400 text-xs uppercase tracking-widest font-semibold">The answer was</p>
+      <div className="w-20 h-20 rounded-xl overflow-hidden bg-zinc-700 ring-1 ring-zinc-600">
+        {imageUrl && !imgErr ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt={name} className="w-full h-full object-cover object-top" onError={() => setImgErr(true)} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-2xl font-black text-zinc-400 select-none">{name[0]}</div>
+        )}
+      </div>
+      <p className="text-xl font-black text-white">{name}</p>
     </div>
   );
 }
@@ -167,15 +197,15 @@ function ActorCard({ row }: { row: ActorComparison }) {
             ))}
           </div>
 
-          {/* Attribute tiles: 4 + 3, Country spans both rows */}
+          {/* Attribute tiles: 4-col grid, Country spans both rows */}
           <div className="grid grid-cols-4 gap-1.5">
-            <Tile kind="num"  label="Age"       value={String(row.age.value)}                      direction={row.age.direction}             closeness={row.age.closeness} />
-            <Tile kind="num"  label="Gross"      value={fmtGross(row.totalCareerGross.value)}       direction={row.totalCareerGross.direction} closeness={row.totalCareerGross.closeness} />
-            <Tile kind="num"  label="Awards"     value={String(row.majorAwards.value)}              direction={row.majorAwards.direction}      closeness={row.majorAwards.closeness} />
-            <Tile kind="bool" label="Country"    value={row.nationality.value}                      match={row.nationality.match}             className="row-span-2" />
-            <Tile kind="num"  label="Yrs Active" value={String(row.yearsActive.value)}              direction={row.yearsActive.direction}      closeness={row.yearsActive.closeness} />
-            <Tile kind="num"  label="Films"      value={String(row.numberOfFilms.value)}            direction={row.numberOfFilms.direction}    closeness={row.numberOfFilms.closeness} />
-            <Tile kind="num"  label="RT Score"   value={`${Math.round(row.avgCriticScore.value)}%`} direction={row.avgCriticScore.direction}   closeness={row.avgCriticScore.closeness} />
+            <Tile kind="num"  label="Age"       value={String(row.age.value)}                direction={row.age.direction}             closeness={row.age.closeness} />
+            <Tile kind="num"  label="Gross"     value={fmtGross(row.totalCareerGross.value)} direction={row.totalCareerGross.direction} closeness={row.totalCareerGross.closeness} />
+            <Tile kind="num"  label="Awards"    value={String(row.majorAwards.value)}        direction={row.majorAwards.direction}      closeness={row.majorAwards.closeness} />
+            <Tile kind="bool" label="Country"   value={row.nationality.value}                match={row.nationality.match}              className="row-span-2" wrap />
+            <Tile kind="num"  label="Yrs Active" value={String(row.yearsActive.value)}       direction={row.yearsActive.direction}      closeness={row.yearsActive.closeness} />
+            <Tile kind="num"  label="Films"      value={String(row.numberOfFilms.value)}     direction={row.numberOfFilms.direction}    closeness={row.numberOfFilms.closeness} />
+            <Tile kind="num"  label="RT Score"   value={row.avgCriticScore.value > 0 ? `${Math.round(row.avgCriticScore.value)}%` : "—"} direction={row.avgCriticScore.direction} closeness={row.avgCriticScore.closeness} />
           </div>
         </div>
       </div>
@@ -208,15 +238,15 @@ function ActorCard({ row }: { row: ActorComparison }) {
               Actors
             </span>
             <div className="flex w-full justify-around">
-              {actorCollabs.map((c) => (
-                <div key={c.name} className="flex flex-col items-center gap-1.5">
+              {actorCollabs.map((c, i) => (
+                <div key={c.isEmpty ? `empty-${i}` : c.name} className="flex flex-col items-center gap-1.5">
                   <CollabPhoto entry={c} />
                   <span
                     className={`text-[10px] font-semibold text-center leading-tight max-w-[4.5rem] ${
-                      c.highlighted ? "text-green-400" : "text-zinc-300"
+                      c.highlighted ? "text-green-400" : c.isEmpty ? "text-zinc-700" : "text-zinc-300"
                     }`}
                   >
-                    {c.name}
+                    {c.isEmpty ? "—" : c.name}
                   </span>
                 </div>
               ))}
@@ -263,12 +293,25 @@ export default function ActordleGame({ names }: { names: string[] }) {
   const [guesses, setGuesses] = useState<ActorComparison[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [won, setWon] = useState(false);
+  const [givenUp, setGivenUp] = useState(false);
+  const [answer, setAnswer] = useState<{ name: string; imageUrl: string | null } | null>(null);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const guessedNames = new Set(guesses.map((g) => g.name));
   const remaining = MAX_GUESSES - guesses.length;
   const lost = !won && remaining === 0;
+  const gameOver = lost || givenUp;
+
+  // Fetch the answer when the game ends (loss or give-up)
+  useEffect(() => {
+    if (gameOver && !won && !answer) {
+      startTransition(async () => {
+        const ans = await getActordleAnswer();
+        setAnswer(ans);
+      });
+    }
+  }, [gameOver, won, answer]);
 
   function handleInput(val: string) {
     setInput(val);
@@ -289,7 +332,7 @@ export default function ActordleGame({ names }: { names: string[] }) {
 
   function handleSubmit() {
     const name = input.trim();
-    if (!name || won || lost) return;
+    if (!name || won || gameOver) return;
     if (guessedNames.has(name)) { setError("Already guessed."); return; }
 
     startTransition(async () => {
@@ -300,6 +343,11 @@ export default function ActordleGame({ names }: { names: string[] }) {
       setFiltered([]);
       if (result.isCorrect) setWon(true);
     });
+  }
+
+  function handleGiveUp() {
+    if (won || gameOver) return;
+    setGivenUp(true);
   }
 
   return (
@@ -319,46 +367,57 @@ export default function ActordleGame({ names }: { names: string[] }) {
           </a>
         </div>
 
-        {!won && !lost && (
-          <div className="relative flex flex-col gap-2">
-            <div className="flex gap-2">
-              <input
-                ref={inputRef}
-                className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white placeholder:text-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="Type an actor name…"
-                value={input}
-                onChange={(e) => handleInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSubmit();
-                  if (e.key === "Escape") setFiltered([]);
-                }}
-                disabled={isPending}
-                autoComplete="off"
-              />
+        {!won && !gameOver && (
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-center">
               <button
-                onClick={handleSubmit}
-                disabled={isPending || !input.trim()}
-                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
+                onClick={handleGiveUp}
+                className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-zinc-400 hover:text-zinc-200 text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
               >
-                {isPending ? "…" : "Guess"}
+                Give Up
               </button>
             </div>
 
-            {filtered.length > 0 && (
-              <ul className="absolute top-full mt-1 left-0 right-[5.5rem] z-10 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
-                {filtered.map((n) => (
-                  <li
-                    key={n}
-                    className="px-4 py-2.5 cursor-pointer hover:bg-zinc-700 text-sm text-zinc-100 transition-colors"
-                    onMouseDown={() => selectSuggestion(n)}
-                  >
-                    {n}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className="relative flex flex-col gap-2">
+              <div className="flex gap-2">
+                <input
+                  ref={inputRef}
+                  className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-white placeholder:text-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="Type an actor name…"
+                  value={input}
+                  onChange={(e) => handleInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSubmit();
+                    if (e.key === "Escape") setFiltered([]);
+                  }}
+                  disabled={isPending}
+                  autoComplete="off"
+                />
+                <button
+                  onClick={handleSubmit}
+                  disabled={isPending || !input.trim()}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-xl transition-colors text-sm"
+                >
+                  {isPending ? "…" : "Guess"}
+                </button>
+              </div>
 
-            {error && <p className="text-red-400 text-sm pl-1">{error}</p>}
+              {filtered.length > 0 && (
+                <ul className="absolute top-full mt-1 left-0 right-[5.5rem] z-10 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+                  {filtered.map((n) => (
+                    <li
+                      key={n}
+                      className="px-4 py-2.5 cursor-pointer hover:bg-zinc-700 text-sm text-zinc-100 transition-colors"
+                      onMouseDown={() => selectSuggestion(n)}
+                    >
+                      {n}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {error && <p className="text-red-400 text-sm pl-1">{error}</p>}
+            </div>
           </div>
         )}
 
@@ -372,10 +431,21 @@ export default function ActordleGame({ names }: { names: string[] }) {
           </div>
         )}
 
-        {lost && (
+        {!won && gameOver && (
           <div className="text-center bg-red-950 border border-red-800 rounded-xl p-6">
-            <p className="text-2xl font-black text-red-400">Better luck tomorrow!</p>
-            <p className="text-red-500 mt-1 text-sm">You used all {MAX_GUESSES} guesses.</p>
+            <p className="text-2xl font-black text-red-400">
+              {givenUp ? "You gave up!" : "Better luck tomorrow!"}
+            </p>
+            <p className="text-red-500 mt-1 text-sm">
+              {givenUp
+                ? `You gave up after ${guesses.length} guess${guesses.length !== 1 ? "es" : ""}.`
+                : `You used all ${MAX_GUESSES} guesses.`}
+            </p>
+            {answer ? (
+              <AnswerReveal name={answer.name} imageUrl={answer.imageUrl} />
+            ) : (
+              <p className="text-zinc-500 text-sm mt-4 animate-pulse">Revealing answer…</p>
+            )}
             <ShareButton guesses={guesses} won={false} />
           </div>
         )}

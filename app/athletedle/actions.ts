@@ -1,6 +1,6 @@
 "use server";
 
-import { compareAthlete } from "@/lib/athleteGame";
+import { compareAthlete, getDailyAthlete } from "@/lib/athleteGame";
 import type { AthleteComparison } from "@/lib/athleteGame";
 
 export async function submitAthleteGuess(
@@ -10,4 +10,9 @@ export async function submitAthleteGuess(
   const result = await compareAthlete(name, new Date().getFullYear());
   if (!result) return { error: `"${name}" not found in our athlete database.` };
   return result;
+}
+
+export async function getAthletedleAnswer(): Promise<{ name: string; imageUrl: string | null }> {
+  const athlete = await getDailyAthlete();
+  return { name: athlete.name, imageUrl: athlete.imageUrl ?? null };
 }
